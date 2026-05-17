@@ -1,0 +1,774 @@
+---
+title: "MBLClustering: Gaussian Mixture Models with Outlier Detection"
+author: "Skander HAJ MABROUK & Maram NASR"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{MBLClustering: Gaussian Mixture Models with Outlier Detection}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  fig.align = "center"
+)
+```
+
+## Introduction
+
+MBLClustering est un package R qui implémente des modèles de mélange gaussiens (Gaussian Mixture Models - GMM) avec détection intégrée d'outliers. Le package utilise une composante uniforme pour modéliser les outliers et sélectionne automatiquement le meilleur modèle en utilisant le critère BIC (Bayesian Information Criterion).
+
+## Fonctionnalités principales
+
+1. Clustering : Partitionnement des données en K clusters gaussiens
+
+2. Détection d'outliers : Identification automatique des points aberrants
+
+3. Sélection de modèle : Choix automatique entre modèle avec ou sans outliers via BIC
+
+4. Visualisation : Fonctions intégrées pour visualiser les résultats
+
+5. Robustesse : Initialisations multiples pour éviter les optimums locaux
+
+## Installation du package
+
+```{r, eval=FALSE}
+# Installation depuis le fichier source local
+install.packages("MBLClustering_1.0.0.tar.gz", repos = NULL, type = "source")
+```
+
+## Chargement du package
+
+```{r}
+# Chargement du package
+library(MBLClustering)
+```
+
+## 1. Données simulées
+
+### 1.1 Génération de données avec clusters et outliers
+
+```{r}
+# Charger les packages nécessaires
+library(mvtnorm)
+
+set.seed(123)
+
+# Paramètres
+n_cluster1 <- 100
+n_cluster2 <- 100
+n_cluster3 <- 100
+n_outliers <- 30  # Réduire le nombre d'outliers
+
+# Générer trois clusters gaussiens bien séparés
+cluster1 <- mvtnorm::rmvnorm(n_cluster1, mean = c(0, 0), sigma = diag(2) * 0.3)
+cluster2 <- mvtnorm::rmvnorm(n_cluster2, mean = c(4, 4), sigma = matrix(c(0.5, 0.2, 0.2, 0.5), 2, 2))
+cluster3 <- mvtnorm::rmvnorm(n_cluster3, mean = c(-3, 5), sigma = matrix(c(0.4, -0.1, -0.1, 0.4), 2, 2))
+
+# Générer des outliers éloignés
+outliers <- cbind(
+  runif(n_outliers, -8, 8),
+  runif(n_outliers, -3, 10)
+)
+
+# Combiner les données
+data <- rbind(cluster1, cluster2, cluster3, outliers)
+
+# Créer un vecteur de vérité terrain
+true_labels <- c(
+  rep(1, n_cluster1),
+  rep(2, n_cluster2),
+  rep(3, n_cluster3),
+  rep(4, n_outliers)
+)
+
+# Visualiser
+par(mfrow = c(1, 2))
+plot(data, pch = 19, col = true_labels, 
+     main = "Données simulées",
+     xlab = "Dimension 1", ylab = "Dimension 2")
+legend("topleft", legend = paste("Cluster", 1:4),
+       pch = 19, col = 1:4, cex = 0.8)
+
+plot(data, pch = 19, col = ifelse(true_labels == 4, "red", "gray"),
+     main = "Outliers en rouge",
+     xlab = "Dimension 1", ylab = "Dimension 2")
+legend("topleft", legend = c("Clusters", "Outliers"),
+       pch = 19, col = c("gray", "red"))
+par(mfrow = c(1, 1))
+```
+
+## 2. Application du clustering avec détection d'outliers
+
+### 2.1 Exécution de l'algorithme
+
+```{r}
+# Appliquer l'algorithme GMM avec détection d'outliers
+# Nous cherchons 3 clusters gaussiens
+result <- gmm_outliers(data, K = 3, n_init = 20, max_iter = 200)
+
+# Afficher les résultats principaux
+cat("=== RÉSULTATS DU CLUSTERING ===\n")
+cat("Composante uniforme sélectionnée:", result$has_uniform, "\n")
+cat("Nombre d'itérations EM:", result$n_iter, "\n")
+cat("Valeur BIC:", round(result$BIC, 2), "\n")
+cat("Log-vraisemblance finale:", round(max(result$log_likelihood_trace), 2), "\n")
+cat("\n=== DISTRIBUTION DES CLUSTERS ===\n")
+print(table(result$map_assignments))
+
+# Si des outliers sont détectés
+if (result$has_uniform) {
+  cat("\n=== DÉTECTION D'OUTLIERS ===\n")
+  cat("Nombre d'outliers détectés:", sum(result$outliers), "\n")
+  cat("Proportion d'outliers:", round(mean(result$outliers) * 100, 2), "%\n")
+}
+```
+
+### 2.2 Analyse des responsabilités
+
+```{r}
+# Examiner les responsabilités (probabilités d'appartenance)
+responsibilities_summary <- t(apply(result$responsibilities, 2, summary))
+rownames(responsibilities_summary) <- paste("Composante", 1:ncol(result$responsibilities))
+
+cat("=== RÉSUMÉ DES RESPONSABILITÉS ===\n")
+print(round(responsibilities_summary, 4))
+
+# Visualiser l'incertitude du clustering
+uncertainty <- 1 - apply(result$responsibilities, 1, max)
+cat("\n=== INCERTITUDE DU CLUSTERING ===\n")
+cat("Moyenne de l'incertitude:", round(mean(uncertainty), 4), "\n")
+cat("Maximum de l'incertitude:", round(max(uncertainty), 4), "\n")
+
+# Histogramme de l'incertitude
+hist(uncertainty, breaks = 30, col = "lightblue",
+     main = "Distribution de l'incertitude d'affectation",
+     xlab = "Incertitude (1 - probabilité max)",
+     ylab = "Fréquence")
+abline(v = mean(uncertainty), col = "red", lwd = 2, lty = 2)
+legend("topright", legend = paste("Moyenne =", round(mean(uncertainty), 4)),
+       col = "red", lwd = 2, lty = 2)
+```
+
+## 3. Visualisation des résultats
+
+### 3.1 Visualisation des clusters
+
+```{r}
+# Visualiser les résultats du clustering
+par(mfrow = c(2, 2))
+
+# 1. Convergence de l'algorithme EM
+plot(result, type = "convergence")
+
+# 2. Affectation aux clusters
+main_title <- if (result$has_uniform) {
+  "Clustering avec outliers (rouge)"
+} else {
+  "Clustering sans détection d'outliers"
+}
+
+col_points <- if (result$has_uniform) {
+  ifelse(result$outliers, "red", result$map_assignments)
+} else {
+  result$map_assignments
+}
+
+plot(data, pch = 19, 
+     col = col_points,
+     main = main_title,
+     xlab = "Dimension 1", ylab = "Dimension 2")
+
+# Ajouter les centres des clusters
+points(result$parameters$mu, pch = 17, col = "blue", cex = 2, lwd = 2)
+
+# 3. Comparaison avec la vérité terrain
+plot(data, pch = 19, col = true_labels,
+     main = "Vérité terrain",
+     xlab = "Dimension 1", ylab = "Dimension 2")
+
+# 4. Matrice de confusion (si on connaît la vérité terrain)
+if (result$has_uniform) {
+  # Recalculer les labels en considérant les outliers comme classe séparée
+  pred_labels <- ifelse(result$outliers, 4, result$map_assignments)
+} else {
+  pred_labels <- result$map_assignments
+}
+
+# Calculer la matrice de confusion
+conf_matrix <- table(Vérité = true_labels, Prédiction = pred_labels)
+
+plot(1, type = "n", xlim = c(0, 1), ylim = c(0, 1), 
+     xlab = "", ylab = "", axes = FALSE,
+     main = "Performance vs vérité terrain")
+text(0.5, 0.5, paste(capture.output(print(conf_matrix)), collapse = "\n"), 
+     family = "mono", cex = 0.8)
+
+par(mfrow = c(1, 1))
+```
+
+### 3.2 Visualisation des distributions gaussiennes estimées
+
+```{r}
+# Fonction pour dessiner les ellipses
+draw_ellipse_simple <- function(center, cov_matrix, col = "blue") {
+  tryCatch({
+    # Obtenir les points de l'ellipse
+    theta <- seq(0, 2 * pi, length.out = 100)
+    circle <- cbind(cos(theta), sin(theta))
+    
+    # Échelle par les valeurs propres
+    eig <- eigen(cov_matrix)
+    ellipse_points <- t(center + t(circle %*% diag(sqrt(eig$values)) %*% t(eig$vectors)))
+    
+    lines(ellipse_points, col = col, lty = 2, lwd = 2)
+  }, error = function(e) {
+    # Si échec, ne rien faire
+  })
+}
+
+# Préparer les couleurs et symboles
+point_colors <- if (result$has_uniform && any(result$outliers)) {
+  ifelse(result$outliers, "red", "gray70")
+} else {
+  "gray70"
+}
+
+point_symbols <- if (result$has_uniform && any(result$outliers)) {
+  ifelse(result$outliers, 4, 19)
+} else {
+  19
+}
+
+plot(data, pch = point_symbols, col = point_colors,
+     main = "Distributions gaussiennes estimées",
+     xlab = "Dimension 1", ylab = "Dimension 2")
+
+# Ajouter les centres
+cluster_colors <- rainbow(result$K)
+points(result$parameters$mu, pch = 17, col = cluster_colors, cex = 2, lwd = 2)
+
+# Ajouter les ellipses
+for (k in 1:result$K) {
+  draw_ellipse_simple(result$parameters$mu[k, ], 
+                      result$parameters$sigma[, , k], 
+                      col = cluster_colors[k])
+}
+
+# Légende
+if (result$has_uniform && any(result$outliers)) {
+  legend("topleft", 
+         legend = c(paste("Cluster", 1:result$K), "Outliers"),
+         pch = c(rep(17, result$K), 4),
+         col = c(cluster_colors, "red"),
+         bg = "white")
+} else {
+  legend("topleft", 
+         legend = paste("Cluster", 1:result$K),
+         pch = 17,
+         col = cluster_colors,
+         bg = "white")
+}
+```
+
+## 4. Sélection du nombre de clusters
+
+### 4.1 Exploration de différentes valeurs de K
+
+```{r}
+# Évaluer différentes valeurs de K
+k_values <- 1:6
+results_list <- list()
+BIC_values <- numeric(length(k_values))
+has_uniform_list <- logical(length(k_values))
+
+cat("=== SÉLECTION DU NOMBRE DE CLUSTERS ===\n")
+for (i in seq_along(k_values)) {
+  K <- k_values[i]
+  cat("\nTest avec K =", K, "...\n")
+  
+  results_list[[i]] <- gmm_outliers(data, K = K, n_init = 10, max_iter = 150)
+  BIC_values[i] <- results_list[[i]]$BIC
+  has_uniform_list[i] <- results_list[[i]]$has_uniform
+  
+  cat("  BIC:", round(BIC_values[i], 2), "\n")
+  cat("  Uniforme:", has_uniform_list[i], "\n")
+  cat("  Clusters détectés:", length(unique(results_list[[i]]$map_assignments)), "\n")
+}
+
+# Trouver le meilleur K (BIC minimum)
+best_k <- k_values[which.min(BIC_values)]
+cat("\n=== MEILLEUR MODÈLE ===\n")
+cat("K optimal:", best_k, "\n")
+cat("BIC minimal:", round(min(BIC_values), 2), "\n")
+cat("Composante uniforme:", results_list[[which.min(BIC_values)]]$has_uniform, "\n")
+```
+
+### 4.2 Visualisation de la sélection de modèle
+
+```{r}
+# Visualiser l'évolution du BIC
+par(mfrow = c(1, 2))
+
+plot(k_values, BIC_values, type = "b", pch = 19, lwd = 2,
+     xlab = "Nombre de clusters (K)", ylab = "BIC",
+     main = "Sélection de modèle par BIC",
+     col = ifelse(k_values == best_k, "red", "blue"))
+points(best_k, min(BIC_values), pch = 17, col = "red", cex = 2)
+text(best_k, min(BIC_values), paste("K =", best_k), 
+     pos = 3, col = "red", font = 2)
+
+# Visualiser la convergence pour le meilleur modèle
+best_result <- results_list[[which.min(BIC_values)]]
+plot(best_result, type = "convergence", main = paste("Convergence EM (K =", best_k, ")"))
+
+par(mfrow = c(1, 1))
+```
+
+## 5. Analyse des outliers
+
+###5.1 Caractérisation des outliers détectés
+
+```{r}
+if (result$has_uniform) {
+  # Extraire les outliers
+  outlier_data <- data[result$outliers, ]
+  inlier_data <- data[!result$outliers, ]
+  
+  # Statistiques descriptives
+  cat("=== ANALYSE DES OUTLIERS ===\n")
+  cat("Nombre total de points:", nrow(data), "\n")
+  cat("Outliers détectés:", nrow(outlier_data), "(", 
+      round(nrow(outlier_data)/nrow(data)*100, 1), "%)\n\n")
+  
+  cat("=== STATISTIQUES DES OUTLIERS ===\n")
+  
+  # Distances aux centres des clusters
+  distances <- matrix(NA, nrow(data), result$K)
+  for (k in 1:result$K) {
+    centered <- sweep(data, 2, result$parameters$mu[k, ], "-")
+    distances[, k] <- sqrt(rowSums(centered^2))
+  }
+  
+  min_distances <- apply(distances, 1, min)
+  
+  cat("Distance moyenne au centre le plus proche:\n")
+  cat("  - Tous les points:", round(mean(min_distances), 3), "\n")
+  cat("  - Outliers:", round(mean(min_distances[result$outliers]), 3), "\n")
+  cat("  - Inliers:", round(mean(min_distances[!result$outliers]), 3), "\n\n")
+  
+  cat("Probabilité maximale d'appartenance:\n")
+  max_probs <- apply(result$responsibilities, 1, max)
+  cat("  - Outliers (moyenne):", round(mean(max_probs[result$outliers]), 4), "\n")
+  cat("  - Inliers (moyenne):", round(mean(max_probs[!result$outliers]), 4), "\n")
+  
+  # Visualisation des distances
+  par(mfrow = c(1, 2))
+  
+  boxplot(min_distances ~ result$outliers,
+          names = c("Inliers", "Outliers"),
+          col = c("lightgreen", "lightcoral"),
+          main = "Distances aux centres des clusters",
+          ylab = "Distance minimale")
+  
+  hist(max_probs[!result$outliers], col = rgb(0, 1, 0, 0.5), 
+       breaks = 30, xlim = c(0, 1),
+       main = "Probabilités d'appartenance",
+       xlab = "Probabilité max", ylab = "Fréquence")
+  hist(max_probs[result$outliers], col = rgb(1, 0, 0, 0.5), 
+       breaks = 30, add = TRUE)
+  legend("topright", legend = c("Inliers", "Outliers"),
+         fill = c(rgb(0, 1, 0, 0.5), rgb(1, 0, 0, 0.5)))
+  
+  par(mfrow = c(1, 1))
+}
+```
+
+### 5.2 Détection d'outliers dans différentes dimensions
+
+```{r}
+### 5.2 Détection d'outliers dans différentes dimensions
+
+# Exemple avec données en 3D
+set.seed(456)
+
+# Générer des données 3D
+n_points <- 300
+n_outliers_3d <- 30
+
+# Clusters 3D
+cluster1_3d <- mvtnorm::rmvnorm(n_points, mean = c(0, 0, 0), sigma = diag(3) * 0.5)
+cluster2_3d <- mvtnorm::rmvnorm(n_points, mean = c(4, 4, 4), sigma = diag(3) * 0.7)
+outliers_3d <- matrix(stats::runif(n_outliers_3d * 3, -5, 10), ncol = 3)
+
+data_3d <- rbind(cluster1_3d, cluster2_3d, outliers_3d)
+
+# Appliquer le clustering
+result_3d <- gmm_outliers(data_3d, K = 2, n_init = 10)
+
+cat("=== RÉSULTATS 3D ===\n")
+cat("Dimensions des données:", dim(data_3d), "\n")
+cat("K utilisé:", result_3d$K, "\n")
+cat("Composante uniforme:", result_3d$has_uniform, "\n")
+if (result_3d$has_uniform) {
+  cat("Outliers détectés:", sum(result_3d$outliers), "\n")
+}
+
+# Préparer les paramètres de visualisation
+pch_points <- if (result_3d$has_uniform) {
+  ifelse(result_3d$outliers, 4, 19)
+} else {
+  19
+}
+
+col_points <- if (result_3d$has_uniform) {
+  ifelse(result_3d$outliers, "red", result_3d$map_assignments)
+} else {
+  result_3d$map_assignments
+}
+
+# Visualisation 3D (projection)
+par(mfrow = c(1, 2))
+
+# Projection sur les deux premières dimensions
+plot(data_3d[, 1:2], 
+     pch = pch_points,
+     col = col_points,
+     main = "Projection 2D (dimensions 1-2)",
+     xlab = "Dimension 1", ylab = "Dimension 2")
+
+# Projection sur les dimensions 1 et 3
+plot(data_3d[, c(1, 3)], 
+     pch = pch_points,
+     col = col_points,
+     main = "Projection 2D (dimensions 1-3)",
+     xlab = "Dimension 1", ylab = "Dimension 3")
+
+par(mfrow = c(1, 1))
+```
+## 6. Cas d'utilisation avancé : Données déséquilibrées
+
+```{r}
+# Générer des données déséquilibrées
+set.seed(789)
+
+n_large <- 500
+n_small <- 50
+n_outliers_imb <- 40
+
+# Un grand cluster et un petit cluster
+large_cluster <- rmvnorm(n_large, mean = c(0, 0), sigma = diag(2) * 0.8)
+small_cluster <- rmvnorm(n_small, mean = c(6, 6), sigma = diag(2) * 0.3)
+outliers_imb <- matrix(runif(n_outliers_imb * 2, -3, 9), ncol = 2)
+
+data_imb <- rbind(large_cluster, small_cluster, outliers_imb)
+
+# Appliquer le clustering
+result_imb <- gmm_outliers(data_imb, K = 2, n_init = 15)
+
+cat("=== DONNÉES DÉSÉQUILIBRÉES ===\n")
+cat("Taille cluster 1:", n_large, "points\n")
+cat("Taille cluster 2:", n_small, "points\n")
+cat("Outliers:", n_outliers_imb, "points\n\n")
+
+cat("Résultats du clustering:\n")
+cluster_sizes <- table(result_imb$map_assignments)
+print(cluster_sizes)
+
+if (result_imb$has_uniform) {
+  cat("\nOutliers détectés:", sum(result_imb$outliers), "\n")
+  cat("Proportion correcte:", 
+      round(sum(result_imb$outliers) / n_outliers_imb * 100, 1), "%\n")
+}
+
+# Visualisation
+plot(data_imb, 
+     pch = if (result_imb$has_uniform) {
+       ifelse(result_imb$outliers, 4, 19)
+     } else {
+       19
+     },
+     col = if (result_imb$has_uniform) {
+       ifelse(result_imb$outliers, "red", result_imb$map_assignments)
+     } else {
+       result_imb$map_assignments
+     },
+     main = "Clustering sur données déséquilibrées",
+     xlab = "Dimension 1", ylab = "Dimension 2")
+
+# Ajouter les centres
+points(result_imb$parameters$mu, pch = 17, col = "blue", cex = 2, lwd = 2)
+
+# Ajouter la taille des clusters dans la légende
+legend("topleft", 
+       legend = c(paste("Cluster 1 (n=", cluster_sizes[1], ")", sep = ""),
+                  paste("Cluster 2 (n=", cluster_sizes[2], ")", sep = ""),
+                  if (result_imb$has_uniform) paste("Outliers (n=", sum(result_imb$outliers), ")", sep = "") else NULL,
+                  "Centres"),
+       pch = c(19, 19, if (result_imb$has_uniform) 4 else NULL, 17),
+       col = c(1, 2, if (result_imb$has_uniform) "red" else NULL, "blue"),
+       bg = "white")
+```
+
+## 7. Données réelles : dataset *iris*
+
+Dans cette section, nous testons le package sur un dataset réel bien connu : `iris`
+L'objectif est double :
+1) vérifier que le clustering retrouve correctement les 3 groupes naturels (espèces),
+2) vérifier le comportement de la détection d'outliers sur données réelles.
+
+### 7.1 Chargement et pré-traitement
+
+```{r}
+data(iris)
+
+# Garder uniquement les variables numériques
+X_iris <- as.matrix(iris[, 1:4])
+y_iris <- iris$Species
+
+# Standardisation (important pour un GMM si les échelles diffèrent)
+X_iris_sc <- scale(X_iris)
+
+# Aperçu
+summary(X_iris)
+table(y_iris)
+```
+
+### 7.2 Clustering sur iris (sans outliers artificiels)
+
+On fixe K = 3 (3 espèces connues).
+
+```{r}
+set.seed(42)
+
+res_iris <- gmm_outliers(X_iris_sc, K = 3, n_init = 10, max_iter = 150)
+
+cat("Uniforme sélectionnée :", res_iris$has_uniform, "\n")
+cat("BIC :", round(res_iris$BIC, 2), "\n")
+cat("Itérations EM :", res_iris$n_iter, "\n")
+cat("LogLik finale :", round(max(res_iris$log_likelihood_trace), 2), "\n")
+```
+
+**Comparaison avec la vérité terrain (simple et parlant) :**
+
+```{r}
+# Si uniforme (peu probable ici), on met une classe "Outlier"
+
+pred_iris <- res_iris$map_assignments
+if (res_iris$has_uniform && !is.null(res_iris$outliers)) {
+pred_iris <- ifelse(res_iris$outliers, "Outlier", paste0("C", pred_iris))
+} else {
+pred_iris <- paste0("C", pred_iris)
+}
+
+cat("Table de contingence (clusters vs espèces):\n")
+print(table(Cluster = pred_iris, Species = y_iris))
+```
+
+### 7.3 Visualisation 2D (PCA) des clusters
+
+**Comme les données sont en 4D, on projette en 2D avec PCA pour visualiser.**
+```{r}
+pca <- prcomp(X_iris_sc, center = FALSE, scale. = FALSE)
+Z <- pca$x[, 1:2]
+
+par(mfrow = c(1, 2))
+
+# Vérité terrain
+
+plot(Z, col = as.numeric(y_iris), pch = 19,
+main = "Iris - vérité terrain (PCA 2D)",
+xlab = "PC1", ylab = "PC2")
+legend("topright", legend = levels(y_iris), col = 1:3, pch = 19, cex = 0.8)
+
+# Clustering
+
+col_pred <- if (res_iris$has_uniform && !is.null(res_iris$outliers)) {
+ifelse(res_iris$outliers, "red", res_iris$map_assignments)
+} else {
+res_iris$map_assignments
+}
+plot(Z, col = col_pred, pch = 19,
+main = "MBLClustering - clusters (PCA 2D)",
+xlab = "PC1", ylab = "PC2")
+
+par(mfrow = c(1, 1))
+```
+
+### 7.4 Ajout de quelques outliers extrêmes
+
+Même si iris est propre, on peut simuler une contamination réaliste :
+on ajoute quelques points très éloignés (sur les données standardisées),
+pour tester si la composante uniforme est sélectionnée.
+
+```{r}
+set.seed(123)
+
+X_conta <- X_iris_sc
+
+# Ajouter 6 points extrêmes
+
+outliers_added <- matrix(rnorm(6 * ncol(X_conta), mean = 0, sd = 1), ncol = ncol(X_conta))
+outliers_added <- outliers_added * 6  # les rendre très éloignés
+
+X_conta2 <- rbind(X_conta, outliers_added)
+
+res_conta <- gmm_outliers(X_conta2, K = 3, n_init = 10, max_iter = 150)
+
+cat("Uniforme sélectionnée :", res_conta$has_uniform, "\n")
+if (res_conta$has_uniform) {
+cat("Nombre d'outliers détectés :", sum(res_conta$outliers), "\n")
+}
+```
+
+**Visualisation PCA**
+```{r}
+pca2 <- prcomp(X_conta2, center = FALSE, scale. = FALSE)
+Z2 <- pca2$x[, 1:2]
+
+col_conta <- if (res_conta$has_uniform && !is.null(res_conta$outliers)) {
+ifelse(res_conta$outliers, "red", "gray70")
+} else {
+"gray70"
+}
+
+plot(Z2, col = col_conta, pch = 19,
+main = "Iris + contamination : outliers en rouge (PCA 2D)",
+xlab = "PC1", ylab = "PC2")
+```
+
+## 8. Conseils d'utilisation et bonnes pratiques
+
+### 8.1 Paramètres recommandés
+
+Configuration recommandée pour différentes situations :
+
+1. Données de petite taille (< 1000 points)
+result <- gmm_outliers(data, K = 2:5, n_init = 20, max_iter = 100)
+
+2. Données de grande taille (> 1000 points)
+result <- gmm_outliers(data, K = 2:10, n_init = 10, max_iter = 50)
+
+3. Recherche du nombre optimal de clusters
+BIC_values <- sapply(2:8, function(k) {
+ gmm_outliers(data, K = k, n_init = 5)$BIC
+})
+optimal_k <- which.min(BIC_values) + 1
+
+4. Pour données à haute dimension
+Consider using PCA first to reduce dimensions
+pca <- prcomp(data, scale = TRUE)
+reduced_data <- pca$x[, 1:min(10, ncol(data))]
+result <- gmm_outliers(reduced_data, K = 3, n_init = 15)
+
+### 8.2 Interprétation des résultats
+
+Les principaux éléments à examiner dans les résultats :
+
+1. has_uniform : Indique si des outliers ont été détectés
+
+2. BIC : Valeur du critère BIC (plus bas = meilleur modèle)
+
+3. map_assignments : Affectation des points aux clusters
+
+4. log_likelihood_trace : Convergence de l'algorithme EM
+
+5. responsibilities : Probabilités d'appartenance (utile pour l'incertitude)
+
+### 8.3 Dépannage
+
+Problèmes courants et solutions :
+
+- Échec des initialisations : Augmentez n_init
+
+- Convergence lente : Augmentez max_iter ou réduisez tol
+
+- Matrices de covariance singulières : Les données peuvent être colinéaires
+
+- BIC toujours en faveur du modèle sans outliers : Réduisez la variance attendue des outliers
+  
+## 9. Validation et Diagnostic Avancés
+
+### 9.1 Comparaison de modèles
+
+```{r}
+# Comparer différents modèles
+model_comparison <- compare_models(data, K_range = 1:6, criterion = "BIC")
+
+# Afficher les résultats
+print(model_comparison)
+
+# Visualiser
+plot(model_comparison)
+```
+
+### 9.2 Diagnostics du meilleur modèle
+
+```{r}
+# Obtenir le meilleur modèle
+best_K <- attr(model_comparison, "best_K")
+best_model <- gmm_outliers(data, K = best_K, n_init = 10)
+
+# Diagnostics avancés
+plot_diagnostics(best_model, type = "advanced")
+```
+### 9.3 Métriques de validation
+
+```{r}
+# Calculer les métriques avec vérité terrain
+metrics <- calculate_metrics(best_model, true_labels = true_labels)
+
+# Résumé
+cat("RÉSUMÉ DES MÉTRIQUES\n")
+summary(metrics)
+
+# Détails complets
+cat("\nMÉTRIQUES DÉTAILLÉES\n")
+print(metrics)
+```
+
+### 9.4 Recommandations pratiques
+
+### 9.4 Recommandations pratiques
+
+```{r}
+cat("TEST FINAL\n")
+cat("Package installé :", as.character(packageVersion("MBLClustering")), "\n")
+cat("Fonction gmm_outliers fonctionne :", !is.null(best_model), "\n")
+cat("Nouvelles fonctionnalités disponibles :\n")
+cat("  - compare_models :", exists("compare_models"), "\n")
+cat("  - plot_diagnostics :", exists("plot_diagnostics"), "\n")
+cat("  - calculate_metrics :", exists("calculate_metrics"), "\n")
+cat("\nWORKFLOW RECOMMANDÉ\n")
+cat("1. compare_models() pour sélectionner K\n")
+cat("2. gmm_outliers() avec le K optimal\n")
+cat("3. plot_diagnostics() pour vérifier la qualité\n")
+cat("4. calculate_metrics() pour évaluer objectivement\n")
+cat("5. Utiliser les résultats pour l'analyse\n")
+```
+
+## 10. Conclusion
+
+Le package MBLClustering offre une implémentation robuste des modèles de mélange gaussiens avec détection intégrée d'outliers. Ses principales forces sont :
+
+  - Automatisation : Sélection automatique du modèle (avec/sans outliers) via BIC
+  
+  - Robustesse : Initialisations multiples pour éviter les optimums locaux
+  
+  - Interprétabilité : Résultats complets et visualisations intégrées
+  
+  - Flexibilité : Applicable à des données de différentes dimensions et tailles
+
+Le package est particulièrement utile pour :
+
+  - L'exploration de données avec présence potentielle d'outliers
+  
+  - Le clustering quand le nombre de clusters est inconnu
+  
+  - Les applications nécessitant à la fois clustering et nettoyage de données

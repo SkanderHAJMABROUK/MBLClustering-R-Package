@@ -1,0 +1,23 @@
+Package: MBLClustering
+Type: Package
+Title: Gaussian Mixture Models with Outlier Detection
+Version: 1.0.0
+Author: Skander HAJ MABROUK [aut, cre], Maram NASR [aut]
+Maintainer: Skander HAJ MABROUK <skander.haj-mabrouk@univ-lyon2.fr>
+Description: Implements Gaussian Mixture Models with uniform component 
+    for outlier detection using EM algorithm and BIC model selection.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Imports:
+    mvtnorm,
+    matrixStats
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    ggplot2,
+    mclust
+VignetteBuilder: knitr
+RoxygenNote: 7.3.3
+Config/testthat/edition: 3
