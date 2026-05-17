@@ -2,6 +2,10 @@
 
 > **An R package implementing simultaneous clustering and outlier detection via Gaussian Mixture Models (GMM) with a uniform noise component, fitted by the EM algorithm and selected by BIC.**
 
+<p align="center">
+  <img src="figures/fig_gaussian_ellipses.png" alt="Gaussian ellipses fitted to clusters with outliers detected" width="80%"/>
+</p>
+
 ---
 
 ## Table of Contents
@@ -87,17 +91,21 @@ cluster3 <- rmvnorm(100, mean = c(-3, 5), sigma = matrix(c(0.4, -0.1, -0.1, 0.4)
 outliers  <- cbind(runif(30, -8, 8), runif(30, -3, 10))
 
 data <- rbind(cluster1, cluster2, cluster3, outliers)
+```
 
+The simulated dataset (left: ground truth labels, right: outliers highlighted in red):
+
+<p align="center">
+  <img src="figures/fig_simulated_data.png" alt="Simulated data: 3 clusters + outliers" width="80%"/>
+</p>
+
+```r
 # Fit the model
 result <- gmm_outliers(data, K = 3, n_init = 20, max_iter = 200)
 
-# Summary
-cat("Uniform component selected (outliers present):", result$has_uniform, "\n")
-cat("Number of outliers detected:", sum(result$outliers), "\n")
+cat("Uniform component selected:", result$has_uniform, "\n")
+cat("Outliers detected:", sum(result$outliers), "\n")
 cat("BIC:", round(result$BIC, 2), "\n")
-
-# Plot convergence + cluster assignments
-plot(result, type = "convergence")
 ```
 
 ---
@@ -140,7 +148,11 @@ gmm_outliers(data, K, n_init = 20, max_iter = 200, tol = 1e-6)
 
 ### `compare_models()`
 
-Fits `gmm_outliers()` across a range of K values and returns a comparison table sorted by BIC.
+Fits `gmm_outliers()` across a range of K values and returns a comparison table sorted by BIC. The BIC curve (left) identifies the optimal K, while the EM convergence plot (right) confirms the algorithm stability:
+
+<p align="center">
+  <img src="figures/fig_bic_convergence.png" alt="BIC model selection curve and EM convergence" width="80%"/>
+</p>
 
 ```r
 model_comparison <- compare_models(data, K_range = 1:6, criterion = "BIC")
@@ -168,18 +180,31 @@ print(metrics)
 
 ## Use Cases
 
-The package vignette demonstrates the following scenarios:
+### Estimated Gaussian distributions
 
-1. **Simulated 2D data** — 3 well-separated clusters + 30 random outliers
-2. **Responsibility analysis** — Uncertainty quantification via max membership probability
-3. **Cluster visualization** — Estimated Gaussian ellipses overlaid on data
-4. **Model selection** — BIC curve over K = 1..6 to identify the optimal number of clusters
-5. **Outlier characterization** — Distance to cluster centers, membership probability distributions
-6. **3D data** — 2D projections of clustering results in higher dimensions
-7. **Imbalanced clusters** — Large cluster (n = 500) vs. small cluster (n = 50) with outliers
-8. **Real data: `iris`** — 4D dataset, PCA visualization, contamination experiment
+The package overlays the estimated covariance ellipses on the data, with cluster centres (triangles) and outliers (red crosses) clearly distinguished:
 
-**Recommended workflow:**
+<p align="center">
+  <img src="figures/fig_gaussian_ellipses.png" alt="Estimated Gaussian distributions with outlier detection" width="75%"/>
+</p>
+
+### Outlier characterization
+
+Detected outliers are significantly farther from cluster centres (left boxplot) and present distinct low membership probabilities compared to regular observations (right histogram):
+
+<p align="center">
+  <img src="figures/fig_outlier_analysis.png" alt="Outlier analysis: distances and membership probabilities" width="80%"/>
+</p>
+
+### Real data — `iris` dataset
+
+Applied to the 4-dimensional `iris` dataset (standardized, visualized via PCA). The package recovers the three species almost perfectly with no prior label information:
+
+<p align="center">
+  <img src="figures/fig_iris_pca.png" alt="Iris dataset: ground truth vs MBLClustering (PCA 2D)" width="80%"/>
+</p>
+
+### Recommended workflow
 
 ```r
 # Step 1 — Select K by BIC sweep
@@ -209,6 +234,7 @@ MBLClustering/
 │   └── calculate_metrics.R  # Clustering evaluation metrics
 ├── vignettes/
 │   └── MBL-clustering-vignette.Rmd   # Full illustrated vignette
+├── figures/                  # README figures (extracted from vignette)
 ├── man/                      # Roxygen2-generated documentation
 ├── DESCRIPTION
 ├── NAMESPACE
@@ -219,13 +245,18 @@ MBLClustering/
 
 ## Vignette
 
-A complete illustrated vignette is included in the package:
+A complete illustrated vignette is included in the package, covering:
+
+- Simulated 2D data with 3 clusters + outliers
+- Responsibility analysis and uncertainty quantification
+- BIC-based selection of the number of clusters
+- Outlier characterization (distances, membership probabilities)
+- 3D data and imbalanced cluster scenarios
+- Real data: `iris` dataset with PCA visualization and contamination experiment
 
 ```r
 vignette("MBL-clustering-vignette", package = "MBLClustering")
 ```
-
-It covers all use cases listed above with reproducible code, plots, and interpretation guidance.
 
 ---
 
